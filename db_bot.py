@@ -13,16 +13,14 @@ def getPath(fname):
     return os.path.join(fdir, fname)
 
 
-# SQL FILES
+# SQL
 setupSqlPath = getPath("setup_tables.sql")
 setupSqlDataPath = getPath("setup_data.sql")
 
-# Read setup scripts
 with open(setupSqlPath) as setupSqlFile, open(setupSqlDataPath) as setupSqlDataFile:
     setupSqlScript = setupSqlFile.read()
     setupSQlDataScript = setupSqlDataFile.read()
 
-# ---- MySQL connection (PyMySQL) ----
 configPath = getPath("config.json")
 print(configPath)
 with open(configPath) as configFile:
@@ -35,16 +33,14 @@ conn = pymysql.connect(
     user=mysql_cfg["user"],
     password=mysql_cfg["password"],
     database=mysql_cfg["database"],
-    autocommit=False,  # we'll commit after running setup scripts
+    autocommit=False,
     charset="utf8mb4",
     cursorclass=pymysql.cursors.Cursor,
 )
 cur = conn.cursor()
 
 
-# Helper to run a multi-statement SQL script (naive splitter by ';')
 def run_script(script: str):
-    # Strip MySQL DELIMITER lines if present (not expected in your schema, but safe)
     cleaned = []
     for line in script.splitlines():
         if line.strip().upper().startswith("DELIMITER "):
@@ -52,14 +48,12 @@ def run_script(script: str):
         cleaned.append(line)
     script = "\n".join(cleaned)
 
-    # Split on semicolons that end statements
     for stmt in script.split(";"):
         if stmt.strip():
             cur.execute(stmt)
     conn.commit()
 
 
-# Build schema and seed data
 run_script(setupSqlScript)
 run_script(setupSQlDataScript)
 
@@ -74,7 +68,7 @@ configPath = getPath("config.json")
 print(configPath)
 
 openAiClient = OpenAI(api_key=config["openaiKey"])
-openAiClient.models.list()  # check if the key is valid (update in config.json)
+openAiClient.models.list()
 
 
 def getChatGptResponse(content):
