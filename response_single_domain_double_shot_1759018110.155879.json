@@ -1,0 +1,62 @@
+{
+  "strategy": "single_domain_double_shot",
+  "prompt_prefix": "DROP DATABASE IF EXISTS golf;\nCREATE DATABASE golf;\nUSE golf;\n\nCREATE TABLE Course (\n    course_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,\n    name VARCHAR(100) NOT NULL,\n    country VARCHAR(100),\n    city VARCHAR(100),\n    rating DECIMAL(4, 1),\n    slope SMALLINT UNSIGNED,\n\n    PRIMARY KEY (course_id)\n);\n\nCREATE TABLE Hole (\n    course_id BIGINT UNSIGNED NOT NULL,\n    hole_number TINYINT UNSIGNED NOT NULL,\n    par TINYINT UNSIGNED NOT NULL,\n    length SMALLINT UNSIGNED NOT NULL,\n\n    PRIMARY KEY (course_id, hole_number),\n    FOREIGN KEY (course_id) REFERENCES Course(course_id)\n);\n\nCREATE TABLE `Match` (\n    match_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,\n    course_id BIGINT UNSIGNED NOT NULL,\n    name VARCHAR(100) NOT NULL,\n\n    PRIMARY KEY (match_id),\n    FOREIGN KEY (course_id) REFERENCES Course(course_id)\n);\n\nCREATE TABLE Brand (\n    brand_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,\n    name VARCHAR(100),\n\n    PRIMARY KEY (brand_id)\n);\n\nCREATE TABLE GolfBag (\n    bag_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,\n    brand_id BIGINT UNSIGNED NOT NULL,\n\n    PRIMARY KEY (bag_id),\n    FOREIGN KEY (brand_id) REFERENCES Brand(brand_id)\n);\n\nCREATE TABLE GolfClub (\n    club_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,\n    bag_id BIGINT UNSIGNED NOT NULL,\n    brand_id BIGINT UNSIGNED NOT NULL,\n    loft TINYINT UNSIGNED,\n    type ENUM('Iron', 'Wood', 'Hybrid', 'Putter'),\n\n    PRIMARY KEY (club_id),\n    FOREIGN KEY (bag_id) REFERENCES GolfBag(bag_id),\n    FOREIGN KEY (brand_id) REFERENCES Brand(brand_id)\n);\n\nCREATE TABLE GolfBall (\n    ball_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,\n    bag_id BIGINT UNSIGNED NOT NULL,\n    brand_id BIGINT UNSIGNED NOT NULL,\n    number TINYINT UNSIGNED,\n    softness ENUM('Hard', 'Soft', 'Super soft', 'Ultra soft'),\n\n    PRIMARY KEY (ball_id),\n    FOREIGN KEY (bag_id) REFERENCES GolfBag(bag_id),\n    FOREIGN KEY (brand_id) REFERENCES Brand(brand_id)\n);\n\nCREATE TABLE Player (\n    player_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,\n    golf_bag_id BIGINT UNSIGNED UNIQUE NOT NULL,\n    first_name VARCHAR(100) NOT NULL,\n    last_name VARCHAR(100) NOT NULL,\n    team VARCHAR(100),\n    handicap DECIMAL(4, 1),\n    handedness ENUM('Left', 'Right'),\n\n    PRIMARY KEY (player_id),\n    FOREIGN KEY (golf_bag_id) REFERENCES GolfBag(bag_id)\n);\n\nCREATE TABLE Scorecard (\n    match_id BIGINT UNSIGNED NOT NULL,\n    player_id BIGINT UNSIGNED NOT NULL,\n\n    PRIMARY KEY (match_id, player_id),\n    FOREIGN KEY (match_id) REFERENCES `Match`(match_id),\n    FOREIGN KEY (player_id) REFERENCES Player(player_id)\n);\n\nCREATE TABLE ScoreCardEntry (\n    match_id BIGINT UNSIGNED NOT NULL,\n    player_id BIGINT UNSIGNED NOT NULL,\n    course_id BIGINT UNSIGNED NOT NULL,\n    hole_number TINYINT UNSIGNED NOT NULL,\n    score TINYINT UNSIGNED,\n\n    PRIMARY KEY (match_id, player_id, course_id, hole_number),\n    FOREIGN KEY (match_id, player_id) REFERENCES Scorecard(match_id, player_id),\n    FOREIGN KEY (course_id, hole_number) REFERENCES Hole(course_id, hole_number)\n);\nEXAMPLE:\n How many left-handed golfers own any TaylorMade golf clubs?  \nSELECT COUNT(DISTINCT p.player_id) AS left_handed_taylormade_owners\nFROM Player p\nJOIN GolfBag gb ON gb.bag_id = p.golf_bag_id\nJOIN GolfClub gc ON gc.bag_id = gb.bag_id\nJOIN Brand b ON b.brand_id = gc.brand_id\nWHERE p.handedness = 'Left'\n  AND LOWER(b.name) LIKE '%taylormade%'\n  Give me a MySQL select statement that answers the question. Only respond with SQL. If there is an error do not explain it! (Note: In golf, lower scores are better, and higher scores are worse.)",
+  "questionResults": [
+    {
+      "question": "Which single player had the best overall score in the first recorded match?",
+      "sql": "\nSELECT p.first_name, p.last_name, SUM(sce.score) AS total_score\nFROM ScoreCardEntry sce\nJOIN Player p ON p.player_id = sce.player_id\nWHERE sce.match_id = (SELECT MIN(match_id) FROM `Match`)\nGROUP BY p.player_id\nORDER BY total_score ASC\nLIMIT 1;\n",
+      "queryRawResponse": "(('William', 'Quinn', Decimal('64')),)",
+      "friendlyResponse": "The single player with the best overall score in the first recorded match was William Quinn, with a total score of 64.",
+      "error": "None"
+    },
+    {
+      "question": "Which team had the best overall score?",
+      "sql": "\nSELECT sc.player_id\nFROM Scorecard sc\nJOIN Player p ON sc.player_id = p.player_id\nGROUP BY p.team\nORDER BY SUM(sce.score) ASC\nLIMIT 1;\n",
+      "queryRawResponse": "(('William', 'Quinn', Decimal('64')),)",
+      "friendlyResponse": "The single player with the best overall score in the first recorded match was William Quinn, with a total score of 64.",
+      "error": "(1054, \"Unknown column 'sce.score' in 'order clause'\")"
+    },
+    {
+      "question": "Which player should be kicked off of each team based on their scores?",
+      "sql": "\nSELECT p.team, p.player_id, p.first_name, p.last_name, SUM(sce.score) AS total_scores\nFROM Player p\nJOIN Scorecard sc ON sc.player_id = p.player_id\nJOIN ScoreCardEntry sce ON sce.match_id = sc.match_id AND sce.player_id = sc.player_id\nGROUP BY p.team, p.player_id\nHAVING total_scores = (\n    SELECT MAX(total_score)\n    FROM (\n        SELECT SUM(sce_inner.score) AS total_score\n        FROM Player p_inner\n        JOIN Scorecard sc_inner ON sc_inner.player_id = p_inner.player_id\n        JOIN ScoreCardEntry sce_inner ON sce_inner.match_id = sc_inner.match_id AND sce_inner.player_id = sc_inner.player_id\n        WHERE p_inner.team = p.team\n        GROUP BY p_inner.player_id\n    ) AS team_scores\n)\nORDER BY p.team, total_scores DESC;\n",
+      "queryRawResponse": "(('Blue', 18, 'Chloe', 'Underwood', Decimal('310')), ('Red', 8, 'Lily', 'Kim', Decimal('313')))",
+      "friendlyResponse": "Based on the scores provided, Chloe Underwood from the Blue team and Lily Kim from the Red team should be considered for removal, as they have the highest total scores on their respective teams.",
+      "error": "None"
+    },
+    {
+      "question": "Which golf brand appears to be the most popular?",
+      "sql": "\nSELECT b.name, COUNT(*) AS club_count\nFROM GolfClub gc\nJOIN Brand b ON b.brand_id = gc.brand_id\nGROUP BY b.name\nORDER BY club_count DESC\nLIMIT 1;\n",
+      "queryRawResponse": "(('Titleist', 42),)",
+      "friendlyResponse": "The most popular golf brand, based on the number of clubs in your database, is Titleist with 42 clubs.",
+      "error": "None"
+    },
+    {
+      "question": "Which match had the most birdies (one stroke below par) scored?",
+      "sql": "\nSELECT m.match_id, m.name, COUNT(*) AS birdies_count\nFROM ScoreCardEntry sce\nJOIN Hole h ON h.course_id = sce.course_id AND h.hole_number = sce.hole_number\nJOIN `Match` m ON m.match_id = sce.match_id\nWHERE sce.score = h.par - 1\nGROUP BY m.match_id\nORDER BY birdies_count DESC\nLIMIT 1;\n",
+      "queryRawResponse": "((2, 'Timanogos Open Championship', 49),)",
+      "friendlyResponse": "The match with the most birdies scored was the \"Timanogos Open Championship,\" with a total of 49 birdies.",
+      "error": "None"
+    },
+    {
+      "question": "Which players (if any) didn't participate in any matches?",
+      "sql": "\nSELECT p.player_id, p.first_name, p.last_name\nFROM Player p\nLEFT JOIN Scorecard s ON p.player_id = s.player_id\nWHERE s.match_id IS NULL;\n",
+      "queryRawResponse": "()",
+      "friendlyResponse": "The query you ran is designed to find players who have not participated in any matches. The result data \"()\" indicates that there are no such players in the database\u2014every player has participated in at least one match.",
+      "error": "None"
+    },
+    {
+      "question": "Does golf ball softness have a significant effect in players' scores?",
+      "sql": "\nSELECT softness, AVG(score) AS average_score\nFROM GolfBall gb\nJOIN GolfBag gbag ON gbag.bag_id = gb.bag_id\nJOIN Player p ON p.golf_bag_id = gbag.bag_id\nJOIN ScoreCardEntry sce ON sce.player_id = p.player_id\nGROUP BY softness\nORDER BY average_score;\n",
+      "queryRawResponse": "(('Super soft', Decimal('4.3300')), ('Soft', Decimal('4.3542')), ('Hard', Decimal('4.3988')), ('Ultra soft', Decimal('4.4762')))",
+      "friendlyResponse": "Based on the query results, it seems that golf ball softness has some effect on players' scores. Players using \"Super soft\" golf balls have the lowest average score (4.3300), suggesting better performance, while those using \"Ultra soft\" golf balls have the highest average score (4.4762), indicating comparatively worse performance. \"Soft\" and \"Hard\" balls fall in between, but the differences are relatively small. Therefore, while there is a noticeable trend, the differences in scores are subtle, and the significance would need further statistical analysis to confirm.",
+      "error": "None"
+    },
+    {
+      "question": "Which golf course seems to be the most difficult for players with Callaway drivers?",
+      "sql": "\nSELECT c.name AS course_name, AVG(sce.score - h.par) AS average_score_over_par\nFROM Scorecard sc\nJOIN ScoreCardEntry sce ON sc.match_id = sce.match_id AND sc.player_id = sce.player_id\nJOIN Player p ON sc.player_id = p.player_id\nJOIN GolfBag gb ON p.golf_bag_id = gb.bag_id\nJOIN GolfClub gc ON gb.bag_id = gc.bag_id\nJOIN Brand b ON gc.brand_id = b.brand_id\nJOIN Hole h ON sce.course_id = h.course_id AND sce.hole_number = h.hole_number\nJOIN Course c ON sce.course_id = c.course_id\nWHERE gc.type = 'Wood'\n  AND LOWER(b.name) LIKE '%callaway%'\nGROUP BY c.course_id\nORDER BY average_score_over_par DESC\nLIMIT 1;\n",
+      "queryRawResponse": "(('Super soft', Decimal('4.3300')), ('Soft', Decimal('4.3542')), ('Hard', Decimal('4.3988')), ('Ultra soft', Decimal('4.4762')))",
+      "friendlyResponse": "Based on the query results, it seems that golf ball softness has some effect on players' scores. Players using \"Super soft\" golf balls have the lowest average score (4.3300), suggesting better performance, while those using \"Ultra soft\" golf balls have the highest average score (4.4762), indicating comparatively worse performance. \"Soft\" and \"Hard\" balls fall in between, but the differences are relatively small. Therefore, while there is a noticeable trend, the differences in scores are subtle, and the significance would need further statistical analysis to confirm.",
+      "error": "(1690, \"BIGINT UNSIGNED value is out of range in '(`golf`.`sce`.`score` - `golf`.`h`.`par`)'\")"
+    }
+  ]
+}
